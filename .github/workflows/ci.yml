@@ -1,0 +1,28 @@
+name: Validate and compile
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install -r requirements-quality.txt
+      - name: Python lint and formatting
+        run: |
+          ruff check --select E,F,I components/zenner_nfc/__init__.py
+          ruff format --check components/zenner_nfc/__init__.py
+      - name: C++ formatting
+        run: clang-format --dry-run --Werror components/zenner_nfc/*.cpp components/zenner_nfc/*.h tests/component_test.cpp tests/stubs/esphome/core/log.h
+      - name: Protocol and PN5180 driver regression tests
+        run: sh tests/run_cpp_tests.sh
+      - name: Configuration validation
+        run: python tests/config_test.py
+      - name: Compile ESP32-C6 firmware
+        run: esphome compile tests/compile.yaml

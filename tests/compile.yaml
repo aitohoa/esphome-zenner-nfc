@@ -1,0 +1,78 @@
+# Build-only configuration. Never contains private credentials.
+esphome:
+  name: zenner-nfc-validation
+esp32:
+  board: esp32-c6-devkitc-1
+  framework:
+    type: esp-idf
+logger:
+  level: DEBUG
+wifi:
+  ssid: build-only
+  password: build-only-password
+api:
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [zenner_nfc]
+spi:
+  id: nfc_spi
+  clk_pin: GPIO6
+  mosi_pin: GPIO4
+  miso_pin: GPIO5
+  interface: hardware
+
+# ESP32-C6-DevKitC-1 onboard WS2812 RGB LED.
+light:
+  - platform: esp32_rmt_led_strip
+    id: nfc_status_led
+    pin: GPIO8
+    num_leds: 1
+    chipset: WS2812
+    channel_colors: GRB
+    internal: true
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0s
+
+zenner_nfc:
+  spi_id: nfc_spi
+  id: water_meter
+  pn5180_dpc: disabled
+  cs_pin: GPIO7
+  pn5180_busy_pin: GPIO10
+  pn5180_rst_pin: GPIO11
+  volume:
+    name: Meter volume
+  forward_volume:
+    name: Water consumption
+  reverse_volume:
+    name: Reverse volume
+  flow:
+    name: Water flow
+    unit_of_measurement: L/min
+  water_temperature:
+    name: Water temperature
+  ambient_temperature:
+    name: Ambient temperature
+  read_success:
+    name: Last read successful
+  status:
+    name: Read status
+    on_value:
+      then:
+        - lambda: |-
+            auto call = id(nfc_status_led).turn_on();
+            call.set_brightness(0.10f);
+            if (x == "ok") {
+              call.set_rgb(0.0f, 1.0f, 0.0f);
+            } else if (x == "initializing PN5180" || x == "ready" || x == "reading") {
+              call.set_rgb(1.0f, 1.0f, 0.0f);
+            } else {
+              call.set_rgb(1.0f, 0.0f, 0.0f);
+            }
+            call.perform();
+  uid:
+    name: NFC UID
+  raw_response:
+    name: Raw response

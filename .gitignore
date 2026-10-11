@@ -1,0 +1,57 @@
+# ESPHome / PlatformIO build products and local state (at any depth)
+.esphome/
+.pioenvs/
+.piolibdeps/
+.pio/
+build/
+__pycache__/
+*.py[cod]
+*.bin
+*.elf
+*.map
+*.o
+*.obj
+*.a
+
+# Credentials and private local configuration
+secrets.yaml
+secrets.yml
+secrets.*.yaml
+secrets.*.yml
+.env
+.env.*
+*.local.yaml
+*.local.yml
+*.local.json
+*.pem
+*.key
+*.p12
+*.pfx
+/.aws/
+/.ssh/
+/.codex/
+/.agents/
+
+# Device logs, captures and private deployment files
+*.log
+*.log.*
+*.pcap
+*.pcapng
+/logs/
+/captures/
+/private/
+/local/
+
+# Editor state, temporary copies and OS metadata
+.vscode/
+.idea/
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+*.swp
+*.swo
+*~
+*.bak
+.DS_Store
+Thumbs.db
