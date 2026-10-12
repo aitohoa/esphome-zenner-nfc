@@ -1,6 +1,6 @@
 # Zenner NFC reader for ESPHome
 
-Read a Zenner IUWS water meter with a PN5180 NFC module and expose its volume,
+Read a Zenner IUWS water meter over NFC with a PN5180 NFC module and expose its volume,
 flow and temperature measurements to Home Assistant. This is a hobby project, use at your own risk. 
 
 ## Compatibility
@@ -12,14 +12,26 @@ flow and temperature measurements to Home Assistant. This is a hobby project, us
 
 ## Protocol
 
-The NFC exchange writes read requests to the volatile mailbox of the water meter. Meter commands
-are identification (`01`) followed by current data (`29`). The meter identification is needed to calculate the crc of further requests.
-No meter settings, counters or firmware are (or can be) changed. Supported identification frames are 48-byte
-format 1 and 50-byte format 2; current-data frames are 43 or 48 bytes.The battery impact of repeated meter
-access remains unverified; 60 seconds is a project default.
+Simply reading the meter’s NFC tag memory returns static contents rather
+than live meter readings. Retrieving current measurements requires exchanging
+application-level commands with the meter through the tag’s SRAM mailbox,
+using ISO/IEC 14443-A communication.
+
+This component uses two meter commands: "identification" (`01`) and
+"get current data" (`29`). The meter ID returned by the identification command
+is used to derive the CRC seed for the current-data request.
+
+This component does not change meter settings, counters or firmware.
+Supported identification replies are 48-byte format 1 and 50-byte format 2;
+current-data replies are 43 or 48 bytes.
+
+The battery impact of repeated meter access remains unverified;
+60 seconds is the default polling interval for this project.
 
 ## Hardware & build
 
+The buold requires wiring a pn5180 module to a ESP32-C6. No other components are needed.
+![example setup](images/zenner_reader_pub.jpg)
 
 
 ## Installation example
