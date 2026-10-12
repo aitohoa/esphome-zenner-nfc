@@ -30,7 +30,7 @@ The battery impact of repeated meter access remains unverified;
 
 ## Hardware & build
 
-The buold requires wiring a pn5180 module to a ESP32-C6. No other components are needed.
+The build requires wiring a pn5180 module to a ESP32-C6. No other components are needed.
 ![example setup](images/zenner_reader_pub.jpg)
 
 
