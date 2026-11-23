@@ -23,6 +23,7 @@ from esphome.const import (
     CONF_STATUS,
     CONF_UID,
     CONF_UNIT_OF_MEASUREMENT,
+    CONF_UPDATE_INTERVAL,
     CONF_VOLUME,
     ENTITY_CATEGORY_DIAGNOSTIC,
 )
@@ -32,6 +33,7 @@ CONF_REVERSE_VOLUME = "reverse_volume"
 CONF_WATER_TEMPERATURE = "water_temperature"
 CONF_AMBIENT_TEMPERATURE = "ambient_temperature"
 CONF_RAW_RESPONSE = "raw_response"
+CONF_SYSTEM_STATE = "system_state"
 CONF_READ_SUCCESS = "read_success"
 CONF_CONSECUTIVE_ERRORS_LIMIT = "consecutive_errors_limit"
 CONF_PN5180_BUSY_PIN = "pn5180_busy_pin"
@@ -51,7 +53,7 @@ SENSORS = (
     CONF_WATER_TEMPERATURE,
     CONF_AMBIENT_TEMPERATURE,
 )
-TEXT_SENSORS = (CONF_STATUS, CONF_UID, CONF_RAW_RESPONSE)
+TEXT_SENSORS = (CONF_STATUS, CONF_UID, CONF_RAW_RESPONSE, CONF_SYSTEM_STATE)
 
 
 def volume_schema(state_class):
@@ -163,6 +165,19 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_RAW_RESPONSE): text_sensor.text_sensor_schema(
                 entity_category=ENTITY_CATEGORY_DIAGNOSTIC
             ),
+            cv.Optional(CONF_SYSTEM_STATE): text_sensor.text_sensor_schema(
+                entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+            ).extend(
+                {
+                    cv.Optional(CONF_UPDATE_INTERVAL, default="15min"): cv.All(
+                        cv.positive_time_period_milliseconds,
+                        cv.Range(
+                            min=cv.TimePeriod(milliseconds=1),
+                            max=cv.TimePeriod(milliseconds=0x7FFFFFFF),
+                        ),
+                    ),
+                }
+            ),
             cv.Optional(CONF_READ_SUCCESS): binary_sensor.binary_sensor_schema(
                 entity_category=ENTITY_CATEGORY_DIAGNOSTIC
             ),
@@ -201,6 +216,9 @@ async def to_code(config):
         if key in config:
             entity = await text_sensor.new_text_sensor(config[key])
             cg.add(getattr(var, f"set_{key}_sensor")(entity))
+    if CONF_SYSTEM_STATE in config:
+        interval = config[CONF_SYSTEM_STATE][CONF_UPDATE_INTERVAL]
+        cg.add(var.set_system_state_interval(interval.total_milliseconds))
     if CONF_READ_SUCCESS in config:
         entity = await binary_sensor.new_binary_sensor(config[CONF_READ_SUCCESS])
         cg.add(var.set_read_success_sensor(entity))

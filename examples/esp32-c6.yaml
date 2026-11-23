@@ -59,9 +59,9 @@ zenner_nfc:
   pn5180_rst_pin: GPIO11
   volume:
     name: Meter volume
-    disabled_by_default: true
   forward_volume:
     name: Water consumption
+    disabled_by_default: true
   reverse_volume:
     name: Reverse volume
     disabled_by_default: true

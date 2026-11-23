@@ -94,7 +94,7 @@ void response(std::vector<uint8_t> b, uint16_t seed, bool corrupt = false) {
 void put32(std::vector<uint8_t> &b, int offset, uint32_t n) {
   for (int i = 0; i < 4; i++) b[offset + i] = n >> (8 * i);
 }
-void full_scan(bool corrupt = false) {
+void identification_reply() {
   selection_ok();
   session(0x41, 0x21);
   request(1, 0xFFFF);
@@ -106,6 +106,9 @@ void full_scan(bool corrupt = false) {
   put32(id, 17, 0x01085006);
   put32(id, 21, 0x12345678);
   response(id, 0xFFFF);
+}
+void full_scan(bool corrupt = false) {
+  identification_reply();
   session(0x41, 0x21);
   request(0x29, 0x444C);
   session(0x40, 0x29);
@@ -116,6 +119,14 @@ void full_scan(bool corrupt = false) {
   double volume = 123.5;
   memcpy(v.data() + 9, &volume, 8);
   response(v, 0x444C, corrupt);
+}
+void system_state_reply(bool corrupt) {
+  session(0x41, 0x21);
+  request(iuw::GET_SYSTEM_STATE, 0x444C);
+  session(0x40, 0x29);
+  session(0x40, 0x29);
+  std::vector<uint8_t> state{11, 0x0F, 0x78, 0x56, 0x34, 0x12, 0x02, 0x01, 0x00, 0x20, 0x00, 0x80, 0, 0};
+  response(state, 0x444C, corrupt);
 }
 int main() {
   for (auto mode : {0, 1, 2}) {
@@ -145,6 +156,43 @@ int main() {
     f.finish();
     assert(f.status.state == "ok" && f.success.state && f.volume.state == 123.5f);
     assert(test_bus::replies.empty() && count(0xA2) == 4);
+  }
+  {
+    Fixture f;
+    text_sensor::TextSensor state;
+    f.meter.set_system_state_sensor(&state);
+    constexpr uint32_t interval = 10000;
+    f.meter.set_system_state_interval(interval);
+    uint32_t due = test_bus::now - 1 + interval;
+    full_scan();
+    f.meter.update();
+    f.finish();
+    assert(state.state.empty() && count(0xA2) == 4);
+    for (bool corrupt : {false, true}) {
+      identification_reply();
+      system_state_reply(corrupt);
+      const auto before = test_bus::rf_commands.size();
+      for (uint32_t i = 0; i < interval && f.meter.idle(); i++) f.tick();
+      assert(!f.meter.idle() && test_bus::rf_commands.size() == before);
+      assert(test_bus::now == due + 1);
+      due += interval;
+      if (corrupt) {
+        full_scan(true);
+        f.meter.update();
+      }
+      f.finish();
+      assert(f.status.state == "ok" && f.success.state && f.volume.state == 123.5f);
+      assert(state.state ==
+             (corrupt ? "unavailable" : "SystemState=0x12345678 NFC_PowerFailCounter=258 SystemInfo=0x80002000"));
+      if (corrupt) {
+        f.tick();
+        assert(!f.meter.idle());
+        f.finish();
+        assert(!f.success.state && f.meter.failures() == 1 && state.state == "unavailable");
+      }
+      assert(test_bus::replies.empty());
+    }
+    assert(count(0xA2) == 16);
   }
   {
     Fixture f;

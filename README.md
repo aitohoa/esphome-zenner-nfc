@@ -17,9 +17,10 @@ than live meter readings. Retrieving current measurements requires exchanging
 application-level commands with the meter through the tag’s SRAM mailbox,
 using ISO/IEC 14443-A communication.
 
-This component uses two meter commands: "identification" (`01`) and
+This component normally uses two meter commands: "identification" (`01`) and
 "get current data" (`29`). The meter ID returned by the identification command
-is used to derive the CRC seed for the current-data request.
+is used to derive the CRC seed for the current-data request and optional
+`GetSystemState` (`0x0F`) request.
 
 This component does not change meter settings, counters or firmware.
 Supported identification replies are 48-byte format 1 and 50-byte format 2;
@@ -65,9 +66,9 @@ zenner_nfc:
   consecutive_errors_limit: 3
   volume:
     name: Meter volume
-    disabled_by_default: true
   forward_volume:
     name: Water consumption
+    disabled_by_default: true
   reverse_volume:
     name: Reverse volume
     disabled_by_default: true
@@ -92,8 +93,9 @@ The result stays visible until the next scan. Copy both the `light:` block and
 
 ## Configuration documentation
 
-All entities are optional. `update_interval` defaults to `60s`; `never` allows
-manual-only reads. `spi_busy_timeout` defaults to `50ms` and accepts 1–100 ms.
+All entities are optional. The main `update_interval` defaults to `60s`;
+`never` makes current-data reads manual. `spi_busy_timeout` defaults to
+`50ms` and accepts 1–100 ms.
 `consecutive_errors_limit` defaults to 3 and accepts 1–255.
 The normal SPI schema supplies `spi_id` and `cs_pin`; NSS is managed by the reader
 handshake. SPI speed is 2 MHz, mode 0, MSB first. Pin inversion and
@@ -101,22 +103,82 @@ handshake. SPI speed is 2 MHz, mode 0, MSB first. Pin inversion and
 
 | Entity | Unit / metadata | Meaning |
 | --- | --- | --- |
-| `volume` | m³; water, total | Meter's reported net volume |
-| `forward_volume` | m³; water, total_increasing | Forward total; suggested Home Assistant water source |
+| `volume` | m³; water, total | Meter's reported net volume and recommended Home Assistant water source |
+| `forward_volume` | m³; water, total_increasing | Cumulative forward volume |
 | `reverse_volume` | m³; water, total_increasing | Reverse total |
 | `flow` | m³/h, L/min or L/s; volume_flow_rate, measurement | Instantaneous reported flow |
 | `water_temperature` | °C; temperature, measurement | Optional field in the 48-byte current-data format |
 | `ambient_temperature` | °C; temperature, measurement | Optional ambient field; exact physical sensor location unverified |
-| `status` | diagnostic text | Latest read/startup status |
-| `read_success` | diagnostic binary sensor | Whether the latest completed read succeeded |
+| `status` | diagnostic text | Reader startup and current-data read status |
+| `read_success` | diagnostic binary sensor | Whether the latest completed current-data read succeeded |
 | `uid` | diagnostic text | Optional NFC identifier |
 | `raw_response` | diagnostic text | Optional response bytes, potentially identifying |
+| `system_state` | diagnostic text | Optional meter status from `GetSystemState` |
 
 For `flow.unit_of_measurement`, use exactly `m³/h`, `L/min` or `L/s`.
 
-Forward and net totals can be equal when there has been no reverse flow.
-Use the forward total for Home Assistant's water dashboard or a Utility Meter
-helper after checking that the readings match the meter.
+### Water consumption in Home Assistant
+
+Use **Meter volume** (`volume`) as the water source in Home Assistant's Energy
+dashboard. It reports the meter's net volume, which accounts for reverse flow.
+Pressure changes can move water back and forth through the meter, increasing
+both directional totals even when net consumption is zero.
+
+The example configuration enables **Meter volume** by default and disables
+**Water consumption** (`forward_volume`) and **Reverse volume**
+(`reverse_volume`) by default. If your Energy dashboard uses **Water
+consumption** from an earlier setup, enable **Meter volume** in the ESPHome
+device's entity settings in Home Assistant and select it as the water source.
+
+### Optional meter diagnostics with GetSystemState
+
+To enable periodic reads of the meter's own system state, add this under
+`zenner_nfc:`:
+
+```yaml
+  system_state:
+    name: Meter system state
+    update_interval: 15min
+```
+
+The first read is due one interval after the reader is ready. The interval
+defaults to `15min` and is independent of the main meter update interval,
+including when the main interval is `never`. Reads share the NFC reader and
+wait for an active scan to finish. Omit the `system_state` block to turn off
+these reads.
+
+**Meter system state** is a single diagnostic text sensor. It may show
+`unknown` until the first read completes. A successful read looks like this.
+
+```text
+SystemState=0x00000620 NFC_PowerFailCounter=0 SystemInfo=0x00000000
+```
+
+`SystemState` is an internal meter value, `NFC_PowerFailCounter` is a decimal
+count, and `SystemInfo` is a hexadecimal bitmask.
+If the read fails or the payload
+length differs, the text sensor reports `unavailable`. Current-data
+measurements and status have their own read cycle.
+
+In `SystemInfo`, bit 0 indicates a smart-function event, bit 13 indicates
+reverse flow, bit 22 indicates air bubbles, and bit 23 indicates a dry tube
+or failed ultrasonic channels. `SystemInfo=0x00000000` means all of its bits
+were clear at the time of the read.
+
+To verify a read, enable DEBUG logging for the `zenner_nfc` tag.
+
+```yaml
+logger:
+  level: DEBUG
+  logs:
+    zenner_nfc: DEBUG
+```
+
+Look for `TX FC=0F`, followed by `FRAME OK len=14 cmd=0F` and
+`END: system state OK`. A failed attempt logs `GetSystemState failed` with
+the reason.
+
+### Manual current-data read
 
 ```yaml
 button:

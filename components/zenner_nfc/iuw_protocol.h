@@ -84,6 +84,17 @@ struct Current {
   float water_temperature{0}, ambient_temperature{0};
   uint8_t scale_index{0};
 };
+constexpr uint8_t GET_SYSTEM_STATE = 0x0F;
+struct SystemState {
+  uint32_t state;
+  uint16_t nfc_power_fail_counter;
+  uint32_t info;
+};
+inline bool system_state(const uint8_t *p, const Frame &f, SystemState &state) {
+  if (f.command != GET_SYSTEM_STATE || f.size != 14) return false;
+  state = {le32(p + 2), le16(p + 6), le32(p + 8)};
+  return true;
+}
 inline double le_double(const uint8_t *p) {
   static_assert(sizeof(double) == 8, "64-bit double required");
   uint64_t bits = uint64_t(le32(p)) | (uint64_t(le32(p + 4)) << 32);

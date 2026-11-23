@@ -27,6 +27,8 @@ class ZennerNfc : public PollingComponent, public PN5180 {
   void set_uid_sensor(text_sensor::TextSensor *s) { uid_sensor_ = s; }
   void set_status_sensor(text_sensor::TextSensor *s) { status_sensor_ = s; }
   void set_raw_response_sensor(text_sensor::TextSensor *s) { raw_response_sensor_ = s; }
+  void set_system_state_sensor(text_sensor::TextSensor *s) { system_state_sensor_ = s; }
+  void set_system_state_interval(uint32_t ms) { system_state_interval_ = ms; }
   void set_read_success_sensor(binary_sensor::BinarySensor *s) { read_success_sensor_ = s; }
   void set_consecutive_errors_limit(uint8_t n) { consecutive_errors_limit_ = n; }
   void set_dpc_mode(uint8_t mode) { dpc_mode_ = mode; }
@@ -81,17 +83,22 @@ class ZennerNfc : public PollingComponent, public PN5180 {
     RECOVER
   };
   ScanState scan_state_{ScanState::IDLE};
+  bool system_state_scan_{false}, current_scan_pending_{false};
+  uint32_t system_state_interval_{0}, last_system_state_scan_{0};
   uint32_t next_action_{0}, scan_started_{0}, gate_started_{0}, sent_at_{0}, last_gate_log_{0};
   uint8_t selection_attempt_{0};
   uint8_t request_[6]{}, active_fc_{1}, last_ns_{0}, last_nc_{0};
   uint16_t seed_{0xFFFF};
   bool have_session_{false}, seen_i2c_ready_{false};
   void set_state_(ScanState state, uint32_t delay_ms = 0);
+  void start_scan_(bool system_state);
   void finish_scan_(const char *reason, bool success = false);
+  void queue_request_(uint8_t command);
   void status_(const char *value);
   void log_session_(const char *label, const uint8_t *regs);
   PN5180 *nfc_{this};
   text_sensor::TextSensor *uid_sensor_{nullptr}, *status_sensor_{nullptr}, *raw_response_sensor_{nullptr};
+  text_sensor::TextSensor *system_state_sensor_{nullptr};
 };
 }  // namespace zenner_nfc
 }  // namespace esphome

@@ -21,6 +21,10 @@ def check(config, expected, label, generate=False):
         assert (result.returncode == 0) == expected, label + "\n" + result.stdout + result.stderr
         if generate and expected:
             cpp = next(Path(directory).rglob("main.cpp")).read_text()
+            assert ("set_system_state_sensor(" in cpp) == ("system_state" in config["zenner_nfc"])
+            if label.startswith("system state"):
+                interval_ms = 900000 if label.endswith("default") else 300000
+                assert f"set_system_state_interval({interval_ms})" in cpp
             if label.startswith("DPC "):
                 mode = {"preserve": 0, "disabled": 1, "enabled": 2}[config["zenner_nfc"]["pn5180_dpc"]]
                 assert f"set_dpc_mode({mode})" in cpp
@@ -30,7 +34,14 @@ def check(config, expected, label, generate=False):
                 assert "set_flow_unit(2)" in cpp
     print("PASS:", label)
 
-check(base, True, "all entities")
+check(base, True, "system state custom interval", generate=True)
+default_state = copy.deepcopy(base)
+default_state["zenner_nfc"]["system_state"].pop("update_interval")
+check(default_state, True, "system state default", generate=True)
+for interval in ("0ms", "30d"):
+    bad = copy.deepcopy(base)
+    bad["zenner_nfc"]["system_state"]["update_interval"] = interval
+    check(bad, False, f"invalid system state interval {interval}")
 minimal = copy.deepcopy(base)
 minimal["zenner_nfc"] = {k:v for k,v in base["zenner_nfc"].items() if k.startswith("pn5180_") or k in ("id", "spi_id", "cs_pin")}
 minimal["zenner_nfc"]["update_interval"] = "never"

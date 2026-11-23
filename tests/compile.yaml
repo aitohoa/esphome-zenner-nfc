@@ -76,3 +76,6 @@ zenner_nfc:
     name: NFC UID
   raw_response:
     name: Raw response
+  system_state:
+    name: Meter system state
+    update_interval: 5min

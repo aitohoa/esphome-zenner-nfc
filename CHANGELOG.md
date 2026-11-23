@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1 — 2026-11-23
+
+- Enable **Meter volume** by default in the examples and recommend it for Home Assistant water tracking.
+  The net reading accounts for reverse flow. The directional totals are disabled by default. (#1)
+- Add optional `GetSystemState` (`0x0F`) diagnostics with an independent polling interval.
+  The text sensor reports the internal state, NFC power-failure count and system information bitmask.
+
 ## 1.0 — 2026-10-11
 
 - Read Zenner IUW/S volume, forward/reverse totals, flow and temperatures into Home Assistant.

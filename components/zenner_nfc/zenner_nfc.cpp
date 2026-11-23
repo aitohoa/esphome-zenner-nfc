@@ -95,6 +95,7 @@ void ZennerNfc::boot_loop_() {
       return;
   }
   this->ready_ = true;
+  this->last_system_state_scan_ = millis();
   ESP_LOGI(TAG, "PN5180 DPC verified: control=0x%02X enabled=%s", this->pn5180_dpc_[0],
            (this->pn5180_dpc_[0] & 1) ? "YES" : "NO");
   dump_config();
@@ -113,7 +114,10 @@ void ZennerNfc::idle_() {
   this->high_frequency_.stop();
 }
 void ZennerNfc::dump_config() {
-  ESP_LOGCONFIG(TAG, "Zenner NFC 1.0: documented 01 -> 29, A2 transport");
+  ESP_LOGCONFIG(TAG, "Zenner NFC: 01 -> 29, A2 transport");
+  if (this->system_state_sensor_)
+    ESP_LOGCONFIG(TAG, "GetSystemState (01 -> 0F) interval: %lu ms",
+                  static_cast<unsigned long>(this->system_state_interval_));
   if (this->pn5180_versions_valid_) {
     ESP_LOGCONFIG(TAG, "PN5180 product version: %X.%X (raw %02X %02X)", this->pn5180_versions_[1],
                   this->pn5180_versions_[0], this->pn5180_versions_[0], this->pn5180_versions_[1]);
@@ -139,16 +143,32 @@ void ZennerNfc::dump_config() {
   ESP_LOGCONFIG(TAG, "SPI BUSY timeout: %u ms", this->busy_timeout_ms_);
 }
 void ZennerNfc::status_(const char *v) {
-  if (this->status_sensor_) this->status_sensor_->publish_state(v);
+  if (this->status_sensor_ && !this->system_state_scan_) this->status_sensor_->publish_state(v);
 }
 void ZennerNfc::set_state_(ScanState s, uint32_t delay_ms) {
   this->operation_started_ = false;
   this->scan_state_ = s;
   this->next_action_ = millis() + delay_ms;
 }
+void ZennerNfc::queue_request_(uint8_t command) {
+  this->active_fc_ = command;
+  iuw::request(this->request_, command, this->seed_);
+  this->have_session_ = false;
+  this->gate_started_ = millis();
+  this->set_state_(ScanState::WAIT_TX_GATE, 100);
+}
 void ZennerNfc::finish_scan_(const char *reason, bool success) {
   ESP_LOGD(TAG, "END: %s (%u ms)", reason, unsigned(millis() - this->scan_started_));
   const bool needs_reset = this->nfc_->transport_failed() || this->nfc_->active();
+  if (this->system_state_scan_) {
+    if (this->nfc_->active()) this->nfc_->abort();
+    if (!success) {
+      ESP_LOGW(TAG, "GetSystemState failed: %s", reason);
+      this->system_state_sensor_->publish_state("unavailable");
+    }
+    this->set_state_(needs_reset ? ScanState::RECOVER : ScanState::STOP_RF);
+    return;
+  }
   if (this->nfc_->transport_failed()) {
     char status[128];
     snprintf(status, sizeof(status), "PN5180 transport error: %s", this->nfc_->error());
@@ -189,11 +209,20 @@ void ZennerNfc::log_session_(const char *label, const uint8_t *r) {
 void ZennerNfc::update() {
   if (is_failed() || !this->ready_) return;
   if (this->scan_state_ != ScanState::IDLE) {
-    ESP_LOGW(TAG, "scan active; skipped");
+    if (this->system_state_scan_)
+      this->current_scan_pending_ = true;
+    else
+      ESP_LOGW(TAG, "scan active; skipped");
     return;
   }
+  this->current_scan_pending_ = false;
+  this->start_scan_(false);
+}
+void ZennerNfc::start_scan_(bool system_state) {
+  this->system_state_scan_ = system_state;
   this->high_frequency_.start();
   this->scan_started_ = millis();
+  if (system_state) this->last_system_state_scan_ = this->scan_started_;
   this->selection_attempt_ = 0;
   this->active_fc_ = 1;
   this->seed_ = 0xFFFF;
@@ -202,7 +231,7 @@ void ZennerNfc::update() {
   iuw::request(this->request_, 1, 0xFFFF);
   this->status_("reading");
   ESP_LOGD(TAG, "========== NEW SCAN ==========");
-  if (this->raw_response_sensor_) this->raw_response_sensor_->publish_state("");
+  if (this->raw_response_sensor_ && !system_state) this->raw_response_sensor_->publish_state("");
   this->set_state_(ScanState::INIT_RF, 2000);
 }
 void ZennerNfc::loop() {
@@ -212,7 +241,15 @@ void ZennerNfc::loop() {
     this->boot_loop_();
     return;
   }
-  if (this->scan_state_ == ScanState::IDLE || int32_t(millis() - this->next_action_) < 0) return;
+  if (this->scan_state_ == ScanState::IDLE) {
+    if (this->current_scan_pending_)
+      this->update();
+    else if (this->system_state_sensor_ && this->system_state_interval_ &&
+             millis() - this->last_system_state_scan_ >= this->system_state_interval_)
+      this->start_scan_(true);
+    return;
+  }
+  if (int32_t(millis() - this->next_action_) < 0) return;
   if (this->scan_state_ != ScanState::STOP_RF && this->scan_state_ != ScanState::RECOVER &&
       millis() - this->scan_started_ > 20000) {
     this->status_("scan timeout");
@@ -277,7 +314,7 @@ void ZennerNfc::loop() {
       char u[21];
       format_hex(u, sizeof(u), this->nfc_->uid(), this->nfc_->uid_length(), ':');
       ESP_LOGD(TAG, "UID %s", u);
-      if (this->uid_sensor_) this->uid_sensor_->publish_state(u);
+      if (this->uid_sensor_ && !this->system_state_scan_) this->uid_sensor_->publish_state(u);
       this->gate_started_ = millis();
       this->set_state_(ScanState::WAIT_TX_GATE);
       return;
@@ -434,7 +471,7 @@ void ZennerNfc::loop() {
       ESP_LOGD(TAG, "RX PHYSICAL64 %s", hex);
       format_hex(hex, sizeof(hex), logical, n, ' ');
       ESP_LOGD(TAG, "RX LOGICAL64 %s", hex);
-      if (this->raw_response_sensor_) this->raw_response_sensor_->publish_state(hex);
+      if (this->raw_response_sensor_ && !this->system_state_scan_) this->raw_response_sensor_->publish_state(hex);
       iuw::Frame f;
       if (!iuw::frame(logical, n, this->seed_, f)) {
         this->status_("invalid frame or CRC");
@@ -474,11 +511,21 @@ void ZennerNfc::loop() {
         this->seed_ = id.seed;
         ESP_LOGD(TAG, "IDENT OK format=%u firmware=%08lX meterID=%08lX seed=%04X", id.format,
                  (unsigned long)id.firmware, (unsigned long)id.meter_id, this->seed_);
-        this->active_fc_ = 0x29;
-        iuw::request(this->request_, this->active_fc_, this->seed_);
-        this->have_session_ = false;
-        this->gate_started_ = millis();
-        this->set_state_(ScanState::WAIT_TX_GATE, 100);
+        this->queue_request_(this->system_state_scan_ ? iuw::GET_SYSTEM_STATE : 0x29);
+        return;
+      }
+      if (this->active_fc_ == iuw::GET_SYSTEM_STATE) {
+        iuw::SystemState state;
+        if (!iuw::system_state(logical, f, state)) {
+          this->finish_scan_("unsupported system-state layout");
+          return;
+        }
+        char result[96];
+        snprintf(result, sizeof(result), "SystemState=0x%08lX NFC_PowerFailCounter=%u SystemInfo=0x%08lX",
+                 static_cast<unsigned long>(state.state), unsigned(state.nfc_power_fail_counter),
+                 static_cast<unsigned long>(state.info));
+        this->system_state_sensor_->publish_state(result);
+        this->finish_scan_("system state OK", true);
         return;
       }
       iuw::Current v;
